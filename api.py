@@ -7,6 +7,7 @@ from flask import Flask, request, jsonify
 load_dotenv()
 
 API_SECRET = os.getenv('API_SECRET')
+ENVIRONMENT = os.getenv('ENVIRONMENT')
 
 app = Flask(__name__)
 
@@ -15,10 +16,15 @@ def get_db_connection():
         host=os.getenv('DB_HOST'),
         user=os.getenv('DB_USER'),
         password=os.getenv('DB_PASSWORD'),
-        database=os.getenv('DB_DATABASE')
+        database=os.getenv('DB_DATABASE'),
+        port=os.getenv('DB_PORT')
     )
 
 def check_secret():
+    if ENVIRONMENT == 'development':
+        print('Development environment, skipping secret check')
+        return
+
     if request.headers.get('X-Api-Secret') != API_SECRET:
         raise Exception('Invalid API secret')
 
@@ -33,8 +39,16 @@ def get_places():
         check_secret()
 
         cnx = get_db_connection()
-        cursor = cnx.cursor()
-        cursor.execute("SELECT * FROM places")
+        cursor = cnx.cursor(dictionary=True)
+
+        page = request.args.get('page', default=1, type=int)
+
+        if page < 1:
+            raise Exception('Invalid page number')
+        
+        query = "SELECT id, name, address, city, postal_code, province, lat, lon FROM places LIMIT {limit}, {offset}".format(limit = (page - 1) * 10, offset = 10)
+
+        cursor.execute(query)
         places = cursor.fetchall()
 
         return jsonify(places)
@@ -50,8 +64,15 @@ def get_places():
 def ping():
     try:
         check_secret()
+        cnx = get_db_connection()
 
-        return jsonify({'status': 'ok'})
+        if cnx.is_connected():
+            return jsonify({
+                'system': 'ok',
+                'database': 'ok'
+            })
+
+        raise Exception('Database connection error')
     except Exception as e:
         return jsonify({'error': str(e)}), 401
 
