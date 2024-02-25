@@ -20,22 +20,32 @@ from dotenv import load_dotenv
 import os
 import cv2
 import random
+import boto3
+import numpy as np
+import matplotlib.image as mpimg
+
+from PIL import Image
+from io import BytesIO
 
 load_dotenv()
 
 API_SECRET = os.getenv('API_SECRET')
 
-host=os.getenv('MYSQL_HOST')
-user=os.getenv('MYSQL_USER')
-password=os.getenv('MYSQL_PASSWORD')
-database=os.getenv('MYSQL_DATABASE')
-port=os.getenv('MYSQL_PORT')
+host=os.getenv('DB_HOST')
+user=os.getenv('DB_USER')
+password=os.getenv('DB_PASSWORD')
+database=os.getenv('DB_DATABASE')
+port=os.getenv('DB_PORT')
 
-dist=200
-path_s3 = "/home/ec2-user/service/api/images/"
-unique_figure_id = "WIN_20231219_14_03_50_Pro"
-max_result=3
-max_result_all=500
+key_id=os.getenv('KEY_ID')
+access_key=os.getenv('ACCESS_KEY')
+region_name=os.getenv('REGION')
+bucket_name=os.getenv('BUCKET')
+path_file=os.getenv('PATH_FILE')
+
+max_result=os.getenv('MAX_RESULT')
+dist=os.getenv('DIST')
+max_result_all=os.getenv('MAX_RESULT_ALL')
 
 app = Flask(__name__)
 
@@ -50,8 +60,9 @@ def check_secret():
 async def get_material(barcode_user):
     try:
         #check_secret()
+
         engine = get_db_connection()
-    
+
         stmt = select(Product.mat_refund_id, 
                         Refundable.mat_name,
                         Refundable.mat_refund_value). \
@@ -59,9 +70,9 @@ async def get_material(barcode_user):
                         (Product.barcode==barcode_user, 
                         Product.product_seq==0)). \
                         join(Refundable, Product.mat_refund_id==Refundable.mat_refund_id)
-        
+    
         row = engine.connect().execute(stmt).first()    
-        
+
         if row is None:
             msg = "barcode not found"
             return jsonify({'error': msg}), 401  
@@ -79,9 +90,18 @@ async def obtain_barcode(figure_id):
     #check_secret()    
     
     try:
-        img = cv2.imread(path_s3 + figure_id + ".jpg")
+
+        s3 = boto3.client('s3', aws_access_key_id=key_id, 
+                                     aws_secret_access_key=access_key, 
+                                     region_name=region_name)
+
+        file_byte_string = s3.get_object(Bucket="sorticus-s3", Key='img/' + figure_id + '.jpg')['Body'].read()
+        
+        img = Image.open(BytesIO(file_byte_string))
+        img_array = np.array(img)
+
         bd = cv2.barcode.BarcodeDetector()
-        barcode, _1, _2 = bd.detectAndDecode(img)    
+        barcode, _1, _2 = bd.detectAndDecode(img_array)    
     except Exception as e:
         return jsonify({'error': str(e)}), 401              
     
@@ -96,9 +116,13 @@ async def get_location():
 
 @app.route('/get_material_store', methods=['GET'])    
 async def get_material_store():
-    dict_barcode = await obtain_barcode(unique_figure_id)     
+
+    unique_figure_id = 'WIN_20231219_14_03_50_Pro'
+
+    dict_barcode = await obtain_barcode(unique_figure_id)  
 
     barcode = int(dict_barcode.get("barcode_user"))
+
     dict_material = await get_material(barcode)
 
     mat_id = int(dict_material.get("material_id"))
