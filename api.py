@@ -56,6 +56,30 @@ def check_secret():
     if request.headers.get('X-Api-Secret') != API_SECRET:
         raise Exception('Invalid API secret')
 
+@app.route('/verify_input_latlon/<lat_user>&<lon_user>', methods=['GET'])
+async def verify_input_latlon(lat_user, lon_user):
+      
+    try:
+
+        lat_user = round(float(lat_user), 6)
+        lon_user = round(float(lon_user), 6)
+
+        lim_lat = [45.0, 65.0]
+        lim_lon = [50.0, 80.0]
+        lat_center =  45.508888
+        lon_center = -73.561668
+
+        if  lat_user > lim_lat[0] and lat_user < lim_lat[1] and  \
+            abs(lon_user) > lim_lon[0] and abs(lon_user) < lim_lon[1]:
+            result = {'lat_user' : lat_user, 'lon_user' : lon_user} 
+        else:
+            result = {'lat_user' : lat_center, 'lon_user' : lon_center}             
+        
+        return(dict(result))               
+    except Exception as e:
+        return jsonify({'error': str(e)}), 401            
+        
+
 @app.route('/get_material/<barcode_user>', methods=['GET'])
 async def get_material(barcode_user):
     try:
@@ -213,6 +237,11 @@ async def get_store_all(lat_user, lon_user):
 
     try:
         #check_secret()
+
+        dict_lat_lon = await verify_input_latlon(lat_user, lon_user)
+        lat_user=dict_lat_lon.get("lat_user")
+        lon_user=dict_lat_lon.get("lon_user")        
+
         engine = get_db_connection()
 
         distance = (6371 * func.acos (func.cos ( func.radians(lat_user) )
